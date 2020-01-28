@@ -17,7 +17,7 @@ internal class MessageViewHolder(
         itemView.setOnClickListener(this)
     }
 
-    fun bind(message: MessageAdapter.Message) {
+    fun bind(message: MessageViewModel.Message) {
         val lblSender = itemView.findViewById<TextView>(R.id.lblSender)
         val lblMessage = itemView.findViewById<TextView>(R.id.lblMessage)
         val imgAvatar = itemView.findViewById<ImageView>(R.id.imgAvatar)

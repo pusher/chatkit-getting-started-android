@@ -6,8 +6,10 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.annotation.UiThread
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Observer
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.pusher.chatkit.*
 import com.pusher.chatkit.messages.multipart.Message
@@ -27,12 +29,13 @@ class MainActivity : AppCompatActivity() {
     private val INSTANCE_LOCATOR = "v1:us1:a373ff46-ae0f-49fa-a88b-68d1e03c53a8"
     private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/a373ff46-ae0f-49fa-a88b-68d1e03c53a8/token"
 
-    private val userId = "pusher-quick-start-alice"
+    private val userId = "pusher-quick-start-bob"
 
     private lateinit var currentUser: CurrentUser
     private lateinit var currentRoom: Room
 
     private lateinit var adapter: MessageAdapter
+    private val messagesViewModel: MessageViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +47,21 @@ class MainActivity : AppCompatActivity() {
             onClickPendingMessage = this::onClickPendingMessage,
             onClickFailedMessage = this::onClickFailedMessage
         )
+
+        val messagesObserver = Observer<MessageViewModel.MessageModel> { newState ->
+            adapter.setItems(newState.rows)
+            when (newState.change) {
+                is MessageViewModel.ChangeType.ItemUpdated -> {
+                    adapter.notifyItemChanged(newState.change.index)
+                }
+                is MessageViewModel.ChangeType.ItemAdded -> {
+                    adapter.notifyItemInserted(newState.change.index)
+                    recyclerViewMessages.scrollToPosition(newState.change.index)
+                }
+            }
+        }
+
+        messagesViewModel.model.observe(this, messagesObserver)
 
         val layoutManager = LinearLayoutManager(this)
         layoutManager.stackFromEnd = true
@@ -130,8 +148,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // add the message to our adapter
-        adapter.addMessage(
-            MessageAdapter.Message(
+        messagesViewModel.addMessage(
+            MessageViewModel.Message (
                 senderId = message.sender.id,
                 senderName = message.sender.name!!,
                 senderAvatarUrl = message.sender.avatarURL,
@@ -139,19 +157,17 @@ class MainActivity : AppCompatActivity() {
             ),
             internalId
         )
-        // scroll to view the new message
-        recyclerViewMessages.scrollToPosition(adapter.lastIndex)
     }
 
     fun onClickSendButton(view: View) {
         sendMessageFromTextEntry()
     }
 
-    private fun onClickPendingMessage(message: MessageAdapter.Message, internalId: String) {
+    private fun onClickPendingMessage(message: MessageViewModel.Message, internalId: String) {
         Log.d(logTag, "Pending message clicked")
     }
 
-    private fun onClickFailedMessage(message: MessageAdapter.Message, internalId: String) {
+    private fun onClickFailedMessage(message: MessageViewModel.Message, internalId: String) {
         Log.d(logTag, "Failed message clicked")
         sendMessage(message.text, internalId)
     }
@@ -174,8 +190,8 @@ class MainActivity : AppCompatActivity() {
             else -> ", retry of internal id $previousInternalMessageId"
         })
 
-        val internalMessageId = adapter.addPendingMessage(
-            MessageAdapter.Message(
+        val internalMessageId = messagesViewModel.addPendingMessage(
+            MessageViewModel.Message(
                 senderId = currentUser.id,
                 senderName = currentUser.name,
                 senderAvatarUrl = currentUser.avatarURL,
@@ -183,7 +199,6 @@ class MainActivity : AppCompatActivity() {
             ),
             previousInternalMessageId
         )
-        recyclerViewMessages.scrollToPosition(adapter.lastIndex)
 
         currentUser.sendMultipartMessage(
             roomId = currentRoom.id,
@@ -198,11 +213,12 @@ class MainActivity : AppCompatActivity() {
                             Log.d(logTag, "Message send succeeded, internal id $internalMessageId, " +
                                     "chatkit message id ${result.value}")
                             // update the pending message row
-                            adapter.pendingMessageConfirmed(internalMessageId)
+                            messagesViewModel.pendingMessageConfirmed(internalMessageId)
                         }
                         is Result.Failure -> {
                             Log.d(logTag, "Message send failed, internal id $internalMessageId")
-                            adapter.pendingMessageFailed(internalMessageId)
+                            messagesViewModel.pendingMessageFailed(internalMessageId)
+                            Toast.makeText(this, "Message failed to send, tap it to retry", Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
