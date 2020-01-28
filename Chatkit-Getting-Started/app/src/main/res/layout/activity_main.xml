@@ -28,6 +28,7 @@
                 android:singleLine="true" />
 
         <ImageButton
+                android:id="@+id/btnSend"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
                 android:layout_gravity="center_vertical"

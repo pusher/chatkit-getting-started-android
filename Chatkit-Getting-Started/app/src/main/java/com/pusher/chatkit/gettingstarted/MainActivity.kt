@@ -10,11 +10,14 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.pusher.chatkit.*
 import com.pusher.chatkit.messages.multipart.Message
+import com.pusher.chatkit.messages.multipart.NewPart
+import com.pusher.chatkit.messages.multipart.Payload
 import com.pusher.chatkit.rooms.Room
 import com.pusher.chatkit.rooms.RoomEvent
 import com.pusher.util.Result
 import elements.Error
 import kotlinx.android.synthetic.main.activity_main.*
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -108,8 +111,25 @@ class MainActivity : AppCompatActivity() {
 
     @UiThread
     private fun onNewMessage(message: Message) {
+        val messageText = (message.parts[0].payload as Payload.Inline).content
+
+        // Some messages which we sent in the distant past might not have internal IDs.
+        val internalId = if (message.parts.size == 2) {
+            (message.parts[1].payload as Payload.Inline).content
+        } else {
+            UUID.randomUUID().toString()
+        }
+
         // add the message to our adapter
-        adapter.addMessage(message)
+        adapter.addMessage(
+            MessageAdapter.Message(
+                senderId = message.sender.id,
+                senderName = message.sender.name!!,
+                senderAvatarUrl = message.sender.avatarURL,
+                text = messageText
+            ),
+            internalId
+        )
         // scroll to view the new message
         recyclerViewMessages.scrollToPosition(adapter.lastIndex)
     }
@@ -125,27 +145,36 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        //        txtMessage.isEnabled = false
-        currentUser.sendSimpleMessage(
+        txtMessage.setText("")
+
+        val internalMessageId = adapter.addPendingMessage(
+            MessageAdapter.Message(
+                senderId = currentUser.id,
+                senderName = currentUser.name,
+                senderAvatarUrl = currentUser.avatarURL,
+                text = text
+            )
+        )
+        recyclerViewMessages.scrollToPosition(adapter.lastIndex)
+
+        currentUser.sendMultipartMessage(
             roomId = currentRoom.id,
-            messageText = txtMessage.text.toString(),
+            parts = listOf(
+                NewPart.Inline(text, "text/plain"),
+                NewPart.Inline(internalMessageId, "x-pusher/internal-id")
+            ),
             callback = { result ->
                 runOnUiThread {
                     when (result) {
                         is Result.Success -> {
-                            // clear the edit text
-                            txtMessage.setText("")
+
+                            // update the pending message row
+                            adapter.pendingMessageConfirmed(internalMessageId)
                         }
                         is Result.Failure -> {
-                            Toast.makeText(
-                                this,
-                                "Could not send message",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            adapter.pendingMessageFailed(internalMessageId)
                         }
                     }
-
-//                    txtMessage.isEnabled = true
                 }
             }
         )

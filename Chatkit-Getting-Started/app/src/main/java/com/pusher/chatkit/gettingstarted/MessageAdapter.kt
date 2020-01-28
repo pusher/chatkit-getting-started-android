@@ -4,53 +4,126 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.annotation.UiThread
 import androidx.recyclerview.widget.RecyclerView
-import com.pusher.chatkit.messages.multipart.Message
-
-internal enum class ViewType {
-    FROM_ME,
-    FROM_OTHER
-}
+import java.util.*
 
 @UiThread
 internal class MessageAdapter(
     private val currentUserId: String
 ) : RecyclerView.Adapter<MessageViewHolder>() {
 
-    private val messages = mutableListOf<Message>()
+    internal data class Message(
+        val senderId: String,
+        val senderName: String?,
+        val senderAvatarUrl: String?,
+        val text: String
+    )
 
-    override fun getItemCount() = messages.size
+    private data class MessageRow(
+        val message: Message,
+        val internalId: String,
+        val state: MessageState
+    )
 
-    val lastIndex get() = this.messages.size-1
+    private enum class MessageState {
+        Confirmed,
+        Pending,
+        Failed
+    }
+
+    private val rows = mutableListOf<MessageRow>()
+
+    override fun getItemCount() = rows.size
+
+    val lastIndex get() = this.rows.size-1
+
+    private enum class ViewType {
+        FROM_ME,
+        FROM_OTHER,
+        PENDING,
+        FAILED
+    }
 
     override fun getItemViewType(position: Int): Int {
-        return if (messages[position].sender.id == currentUserId) {
-            ViewType.FROM_ME.ordinal
-        } else {
-            ViewType.FROM_OTHER.ordinal
+        val row = rows[position]
+        return when (row.state) {
+            MessageState.Pending -> ViewType.PENDING.ordinal
+            MessageState.Failed -> ViewType.FAILED.ordinal
+            MessageState.Confirmed ->
+                if (row.message.senderId == currentUserId) {
+                    ViewType.FROM_ME.ordinal
+                } else {
+                    ViewType.FROM_OTHER.ordinal
+                }
         }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
         val layout =
-            if (viewType == ViewType.FROM_ME.ordinal) {
-                R.layout.layout_message_row_me
-            } else {
-                R.layout.layout_message_row
+            when (viewType) {
+                ViewType.PENDING.ordinal -> R.layout.layout_message_row_pending
+                ViewType.FAILED.ordinal -> R.layout.layout_message_row_failed
+                ViewType.FROM_ME.ordinal -> R.layout.layout_message_row_me
+                ViewType.FROM_OTHER.ordinal -> R.layout.layout_message_row
+                else -> throw Error("Unrecognised view type $viewType")
             }
 
         return MessageViewHolder(
-                LayoutInflater.from(parent.context)
-                    .inflate(layout, parent, false)
+                LayoutInflater.from(parent.context).inflate(layout, parent, false)
             )
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(messages[position])
+        holder.bind(rows[position].message)
     }
 
-    fun addMessage(message: Message) {
-        messages.add(message)
+    fun addMessage(message: Message, internalId: String) {
+        // The message could be new, or it could be a replacement for a pending or failed message
+        // already in our list
+        val existingRowIndex = rows.indexOfLast { row ->
+            row.internalId == internalId
+        }
 
-        notifyItemInserted(lastIndex)
+        val newRow = MessageRow(message, internalId, MessageState.Confirmed)
+
+        if (existingRowIndex == -1) {
+            rows.add(newRow)
+            notifyItemInserted(rows.size-1)
+        } else {
+            rows[existingRowIndex] = newRow
+            notifyItemChanged(existingRowIndex)
+        }
+    }
+
+    fun addPendingMessage(message: Message): String {
+        val internalId = UUID.randomUUID().toString()
+        rows.add(MessageRow(message, internalId, MessageState.Pending))
+        notifyItemInserted(rows.size-1)
+        return internalId
+    }
+
+    fun pendingMessageConfirmed(internalId: String) {
+        val existingRowIndex = rows.indexOfLast { row ->
+            row.internalId == internalId
+        }
+        if (existingRowIndex > -1) {
+            val existingRow = rows[existingRowIndex]
+            rows[existingRowIndex] =
+                MessageRow(existingRow.message, existingRow.internalId, MessageState.Confirmed)
+
+            notifyItemChanged(existingRowIndex)
+        }
+    }
+
+    fun pendingMessageFailed(internalId: String) {
+        val existingRowIndex = rows.indexOfLast { row ->
+            row.internalId == internalId
+        }
+        if (existingRowIndex > -1) {
+            val existingRow = rows[existingRowIndex]
+            rows[existingRowIndex] =
+                MessageRow(existingRow.message, existingRow.internalId, MessageState.Failed)
+
+            notifyItemChanged(existingRowIndex)
+        }
     }
 }
