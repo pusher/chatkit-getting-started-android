@@ -8,8 +8,10 @@ import java.util.*
 
 @UiThread
 internal class MessageAdapter(
-    private val currentUserId: String
-) : RecyclerView.Adapter<MessageViewHolder>() {
+    private val currentUserId: String,
+    private val onClickPendingMessage: (Message, String) -> Unit,
+    private val onClickFailedMessage: (Message, String) -> Unit
+) : RecyclerView.Adapter<MessageViewHolder>(), MessageViewHolder.OnClickListener {
 
     internal data class Message(
         val senderId: String,
@@ -24,7 +26,7 @@ internal class MessageAdapter(
         val state: MessageState
     )
 
-    private enum class MessageState {
+    internal enum class MessageState {
         Confirmed,
         Pending,
         Failed
@@ -68,12 +70,24 @@ internal class MessageAdapter(
             }
 
         return MessageViewHolder(
-                LayoutInflater.from(parent.context).inflate(layout, parent, false)
+                LayoutInflater.from(parent.context).inflate(layout, parent, false), this
             )
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
         holder.bind(rows[position].message)
+    }
+
+    override fun onClick(position: Int) {
+        val clickedRow = rows[position]
+        when (clickedRow.state) {
+            MessageState.Failed ->
+                onClickFailedMessage(clickedRow.message, clickedRow.internalId)
+            MessageState.Pending ->
+                onClickPendingMessage(clickedRow.message, clickedRow.internalId)
+            MessageState.Confirmed -> { /* Ignore */ }
+        }
+
     }
 
     fun addMessage(message: Message, internalId: String) {
@@ -94,10 +108,27 @@ internal class MessageAdapter(
         }
     }
 
-    fun addPendingMessage(message: Message): String {
-        val internalId = UUID.randomUUID().toString()
-        rows.add(MessageRow(message, internalId, MessageState.Pending))
-        notifyItemInserted(rows.size-1)
+    fun addPendingMessage(message: Message, previousInternalId: String?): String {
+        val internalId = previousInternalId ?: UUID.randomUUID().toString()
+
+        val newRow = MessageRow(message, internalId, MessageState.Pending)
+
+        val existingRowIndex =
+            when (previousInternalId) {
+                null -> -1
+                else -> rows.indexOfLast { row ->
+                    row.internalId == previousInternalId
+                }
+            }
+
+        if (existingRowIndex > -1) {
+            rows[existingRowIndex] = newRow
+            notifyItemChanged(existingRowIndex)
+        } else {
+            rows.add(newRow)
+            notifyItemInserted(rows.size - 1)
+        }
+
         return internalId
     }
 

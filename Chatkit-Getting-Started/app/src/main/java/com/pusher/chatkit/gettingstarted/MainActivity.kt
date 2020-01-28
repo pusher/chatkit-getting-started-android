@@ -1,6 +1,7 @@
 package com.pusher.chatkit.gettingstarted
 
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -21,8 +22,10 @@ import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
-    private val INSTANCE_LOCATOR = "v1:us1:07864abd-2a7e-40c4-a0cb-6b9223b85aec"
-    private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/07864abd-2a7e-40c4-a0cb-6b9223b85aec/token"
+    private val logTag = "MainActivity"
+
+    private val INSTANCE_LOCATOR = "v1:us1:a373ff46-ae0f-49fa-a88b-68d1e03c53a8"
+    private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/a373ff46-ae0f-49fa-a88b-68d1e03c53a8/token"
 
     private val userId = "pusher-quick-start-alice"
 
@@ -36,9 +39,15 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         // configure the recyclerview
-        adapter = MessageAdapter(userId)
+        adapter = MessageAdapter(
+            currentUserId = userId,
+            onClickPendingMessage = this::onClickPendingMessage,
+            onClickFailedMessage = this::onClickFailedMessage
+        )
+
         val layoutManager = LinearLayoutManager(this)
         layoutManager.stackFromEnd = true
+
         recyclerViewMessages.layoutManager = layoutManager
         recyclerViewMessages.adapter = adapter
 
@@ -70,7 +79,7 @@ class MainActivity : AppCompatActivity() {
             val sendPressed = actionId == EditorInfo.IME_ACTION_SEND
 
             if (sendPressed || returnPressed) {
-                sendMessage()
+                sendMessageFromTextEntry()
                 true
             } else {
                 // We must declare we "handled" all events related to the enter key, otherwise
@@ -134,18 +143,36 @@ class MainActivity : AppCompatActivity() {
         recyclerViewMessages.scrollToPosition(adapter.lastIndex)
     }
 
-    fun onClickSend(view: View) {
-        sendMessage()
+    fun onClickSendButton(view: View) {
+        sendMessageFromTextEntry()
+    }
+
+    private fun onClickPendingMessage(message: MessageAdapter.Message, internalId: String) {
+        Log.d(logTag, "Pending message clicked")
+    }
+
+    private fun onClickFailedMessage(message: MessageAdapter.Message, internalId: String) {
+        Log.d(logTag, "Failed message clicked")
+        sendMessage(message.text, internalId)
     }
 
     @UiThread
-    private fun sendMessage() {
+    private fun sendMessageFromTextEntry() {
         val text = txtMessage.text.toString().trim()
         if (text.isEmpty()) {
             return
         }
 
         txtMessage.setText("")
+        sendMessage(text, null)
+    }
+
+    @UiThread
+    private fun sendMessage(text: String, previousInternalMessageId: String?) {
+        Log.d(logTag, "Message send requested" + when (previousInternalMessageId) {
+            null -> ", new message"
+            else -> ", retry of internal id $previousInternalMessageId"
+        })
 
         val internalMessageId = adapter.addPendingMessage(
             MessageAdapter.Message(
@@ -153,7 +180,8 @@ class MainActivity : AppCompatActivity() {
                 senderName = currentUser.name,
                 senderAvatarUrl = currentUser.avatarURL,
                 text = text
-            )
+            ),
+            previousInternalMessageId
         )
         recyclerViewMessages.scrollToPosition(adapter.lastIndex)
 
@@ -167,11 +195,13 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     when (result) {
                         is Result.Success -> {
-
+                            Log.d(logTag, "Message send succeeded, internal id $internalMessageId, " +
+                                    "chatkit message id ${result.value}")
                             // update the pending message row
                             adapter.pendingMessageConfirmed(internalMessageId)
                         }
                         is Result.Failure -> {
+                            Log.d(logTag, "Message send failed, internal id $internalMessageId")
                             adapter.pendingMessageFailed(internalMessageId)
                         }
                     }

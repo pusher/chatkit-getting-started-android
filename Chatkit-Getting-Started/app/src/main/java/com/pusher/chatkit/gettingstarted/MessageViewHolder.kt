@@ -7,9 +7,15 @@ import androidx.annotation.UiThread
 import androidx.recyclerview.widget.RecyclerView
 import com.squareup.picasso.Picasso
 
-
 @UiThread
-internal class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+internal class MessageViewHolder(
+    itemView: View,
+    private val clickListener: OnClickListener
+) : RecyclerView.ViewHolder(itemView), View.OnClickListener {
+
+    init {
+        itemView.setOnClickListener(this)
+    }
 
     fun bind(message: MessageAdapter.Message) {
         val lblSender = itemView.findViewById<TextView>(R.id.lblSender)
@@ -24,5 +30,13 @@ internal class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemV
         } else {
             imgAvatar.setImageDrawable(null)
         }
+    }
+
+    override fun onClick(v: View?) {
+        clickListener.onClick(this.adapterPosition)
+    }
+
+    internal interface OnClickListener {
+        fun onClick(position: Int)
     }
 }
