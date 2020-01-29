@@ -3,7 +3,9 @@ package com.pusher.chatkit.gettingstarted
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import java.util.*
+import com.pusher.chatkit.messages.multipart.Message
+import com.pusher.chatkit.messages.multipart.NewPart
+import com.pusher.chatkit.messages.multipart.Payload
 
 sealed class ChangeType {
     data class ItemAdded(val index: Int) : ChangeType()
@@ -25,154 +27,203 @@ class MessagesViewModel : ViewModel() {
         val messageType: MessageType
     )
 
-    data class Model(
+    data class MessagesViewUpdate(
         val items: List<Message>,
         val change: ChangeType
     )
 
-    private val _model: MutableLiveData<Model> = MutableLiveData()
+    private val _model: MutableLiveData<MessagesViewUpdate> = MutableLiveData()
 
     val model get() = _model
 
     fun update(dataModel: DataModel.MessageModel) {
-        _model.postValue(
-            Model(
-                items = dataModel.rows.map { item ->
-                    val senderName = item.message.senderName ?: "Anonymous User"
-
-                    val messageType = when (item.state) {
-                        DataModel.MessageState.Pending -> MessageType.PENDING
-                        DataModel.MessageState.Failed -> MessageType.FAILED
-                        DataModel.MessageState.Confirmed -> {
-                            if (item.message.senderId == dataModel.currentUserId) {
-                                MessageType.FROM_ME
-                            } else {
-                                MessageType.FROM_OTHER
-                            }
+        val newMessages = dataModel.rows.map { item ->
+            when (item) {
+                is DataModel.MessageItem.FromServer -> {
+                    val messageType =
+                        if (item.message.sender.id == dataModel.currentUserId) {
+                            MessageType.FROM_ME
+                        } else {
+                            MessageType.FROM_OTHER
                         }
-                    }
 
-                    Message(senderName, item.message.senderAvatarUrl, item.message.text, messageType)
-                },
+                    Message(
+                        senderName = item.message.sender.name ?: "Anonymous User",
+                        senderAvatarUrl = item.message.sender.avatarURL,
+                        text = ChatkitMessageUtil.findContentOfType("text/plain", item.message)
+                            ?: "",
+                        messageType = messageType
+                    )
+                }
+                is DataModel.MessageItem.Local -> {
+                    val messageType =
+                        when (item.state) {
+                            DataModel.LocalMessageState.PENDING -> MessageType.PENDING
+                            DataModel.LocalMessageState.FAILED -> MessageType.FAILED
+                            DataModel.LocalMessageState.SENT -> MessageType.FROM_ME
+                        }
+
+                    Message(
+                        senderName = dataModel.currentUserName ?: "Anonymous User",
+                        senderAvatarUrl = dataModel.currentUserAvatarUrl,
+                        text = ChatkitMessageUtil.findContentOfType("text/plain", item.message)
+                            ?: "",
+                        messageType = messageType
+                    )
+                }
+            }
+        }
+
+        _model.postValue(
+            MessagesViewUpdate(
+                items = newMessages,
                 change = dataModel.change
             )
         )
     }
 }
 
+object ChatkitMessageUtil {
+    val MIME_TYPE_INTERNAL_ID = "com-pusher-gettingstarted/internal-id"
+
+    fun internalId(message: Message): String? =
+        findContentOfType(MIME_TYPE_INTERNAL_ID, message)
+
+    fun internalId(message: List<NewPart>): String? =
+        findContentOfType(MIME_TYPE_INTERNAL_ID, message)
+
+    fun findContentOfType(type: String, message: Message): String? {
+        val part = message.parts.find {
+            (it.payload as? Payload.Inline)?.type == type
+        }
+
+        return (part?.payload as? Payload.Inline)?.content
+    }
+
+    fun findContentOfType(type: String, message: List<NewPart>): String? {
+        val part = message.find {
+            (it as? NewPart.Inline)?.type == type
+        }
+
+        return (part as? NewPart.Inline)?.content
+    }
+}
+
 class DataModel(
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val currentUserName: String?,
+    private val currentUserAvatarUrl: String?
 ) {
+    enum class LocalMessageState {
+        PENDING,
+        FAILED,
+        SENT
+    }
 
-    data class Message(
-        val senderId: String,
-        val senderName: String?,
-        val senderAvatarUrl: String?,
-        val text: String
-    )
+    sealed class MessageItem {
+        data class FromServer(
+            val message: Message
+        ): MessageItem()
 
-    data class MessageRow(
-        val message: Message,
-        val internalId: String,
-        val state: MessageState
-    )
+        data class Local(
+            val message: List<NewPart>,
+            val state: LocalMessageState
+        ): MessageItem()
 
-    enum class MessageState {
-        Confirmed,
-        Pending,
-        Failed
+        val internalId: String? get() = when (this) {
+            is FromServer -> ChatkitMessageUtil.internalId(message)
+            is Local -> ChatkitMessageUtil.internalId(message)
+        }
     }
 
     data class MessageModel(
         val currentUserId: String,
-        val rows: List<MessageRow>,
+        val currentUserName: String?,
+        val currentUserAvatarUrl: String?,
+        val rows: List<MessageItem>,
         val change: ChangeType
     )
 
-    private val rows: MutableList<MessageRow> = mutableListOf()
+    private val items: MutableList<MessageItem> = mutableListOf()
 
     private val _model: MutableLiveData<MessageModel> = MutableLiveData()
 
     val model: LiveData<MessageModel> get() = _model
 
-
-    fun addConfirmedMessage(message: Message, internalId: String) {
-        val newRow =
-            MessageRow(message, internalId, MessageState.Confirmed)
-
-        addOrUpdateRow(internalId, newRow)
+    fun addMessageFromServer(message: Message) {
+        addOrUpdateItem(MessageItem.FromServer(message))
     }
 
-    fun addPendingMessage(message: Message, previousInternalId: String?): String {
-        val internalId = previousInternalId ?: UUID.randomUUID().toString()
-
-        val newRow =
-            MessageRow(message, internalId, MessageState.Pending)
-
-        addOrUpdateRow(internalId, newRow)
-
-        return internalId
+    fun addPendingMessage(message: List<NewPart>) {
+        addOrUpdateItem(MessageItem.Local(message, LocalMessageState.PENDING))
     }
 
-    fun pendingMessageConfirmed(internalId: String) {
-        updateRowState(internalId, MessageState.Confirmed)
+    fun pendingMessageSent(message: List<NewPart>) {
+        addOrUpdateItem(MessageItem.Local(message, LocalMessageState.SENT))
     }
 
-    fun pendingMessageFailed(internalId: String) {
-        updateRowState(internalId, MessageState.Failed)
+    fun pendingMessageFailed(message: List<NewPart>) {
+        addOrUpdateItem(MessageItem.Local(message, LocalMessageState.FAILED))
     }
 
+    private fun addOrUpdateItem(item: MessageItem) {
+        when (item) {
+            is MessageItem.FromServer -> {
+                // A message from the server is canonical, and will always replace a local message
+                // with the same internalId
+                val index = findItemIndexByInternalId(item.internalId)
 
-    private fun indexOfRow(internalId: String): Int =
-        rows.indexOfLast { row ->
-            row.internalId == internalId
+                if (index == -1) {
+                    addItem(item)
+                } else {
+                    replaceItem(item, index)
+                }
+            }
+            is MessageItem.Local -> {
+                // We may update the state of local messages, but we should never overwrite that of
+                // a FromServer message
+                val index = findItemIndexByInternalId(item.internalId)
+
+                if (index == -1) {
+                    addItem(item)
+                } else if (items[index] !is MessageItem.FromServer) {
+                    replaceItem(item, index)
+                }
+            }
         }
+    }
 
-    private fun addRow(newRow: MessageRow) {
-        rows.add(newRow)
+    private fun addItem(item: MessageItem) {
+        items.add(item)
         _model.postValue(
             MessageModel(
                 currentUserId,
-                rows.toList(),
-                ChangeType.ItemAdded(rows.size - 1)
+                currentUserName,
+                currentUserAvatarUrl,
+                items,
+                ChangeType.ItemAdded(items.size-1)
             )
         )
     }
 
-    private fun updateRow(position: Int, newRow: MessageRow) {
-        rows[position] = newRow
+    private fun replaceItem(item: MessageItem, index: Int) {
+        items[index] = item
         _model.postValue(
             MessageModel(
                 currentUserId,
-                rows.toList(),
-                ChangeType.ItemUpdated(position)
+                currentUserName,
+                currentUserAvatarUrl,
+                items,
+                ChangeType.ItemUpdated(index)
             )
         )
     }
 
-    private fun updateRowState(internalId: String, newState: MessageState) {
-        val existingRowIndex = indexOfRow(internalId)
-
-        if (existingRowIndex != -1) {
-            val existingRow = rows[existingRowIndex]
-            val newRow =
-                MessageRow(
-                    existingRow.message,
-                    existingRow.internalId,
-                    newState
-                )
-
-            updateRow(existingRowIndex, newRow)
-        }
-    }
-
-    private fun addOrUpdateRow(internalId: String, newRow: MessageRow) {
-        val existingRowIndex = indexOfRow(internalId)
-
-        if (existingRowIndex == -1) {
-            addRow(newRow)
-        } else {
-            updateRow(existingRowIndex, newRow)
-        }
-    }
+    private fun findItemIndexByInternalId(internalId: String?): Int =
+         items.indexOfLast { item ->
+             when (item) {
+                 is MessageItem.FromServer -> item.internalId == internalId
+                 is MessageItem.Local -> item.internalId == internalId
+             }
+         }
 }

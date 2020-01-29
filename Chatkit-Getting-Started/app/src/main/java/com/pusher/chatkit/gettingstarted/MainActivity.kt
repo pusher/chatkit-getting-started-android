@@ -1,7 +1,6 @@
 package com.pusher.chatkit.gettingstarted
 
 import android.os.Bundle
-import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -14,7 +13,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.pusher.chatkit.*
 import com.pusher.chatkit.messages.multipart.Message
 import com.pusher.chatkit.messages.multipart.NewPart
-import com.pusher.chatkit.messages.multipart.Payload
 import com.pusher.chatkit.rooms.Room
 import com.pusher.chatkit.rooms.RoomEvent
 import com.pusher.util.Result
@@ -101,12 +99,16 @@ class MainActivity : AppCompatActivity() {
                 currentUser = result.value
                 currentRoom = currentUser.rooms.first()
 
-                messagesDataModel = DataModel(currentUser.id)
+                messagesDataModel = DataModel(
+                    currentUserId = currentUser.id,
+                    currentUserName = currentUser.name,
+                    currentUserAvatarUrl = currentUser.avatarURL
+                )
                 messagesDataModel.model.observe(this, Observer<DataModel.MessageModel> { newDataModel ->
                     messagesViewModel.update(newDataModel)
                 })
 
-                messagesViewModel.model.observe(this, Observer<MessagesViewModel.Model> { newViewModel ->
+                messagesViewModel.model.observe(this, Observer<MessagesViewModel.MessagesViewUpdate> { newViewModel ->
                     adapter.setItems(newViewModel.items)
                     when (newViewModel.change) {
                         is ChangeType.ItemUpdated -> {
@@ -141,25 +143,7 @@ class MainActivity : AppCompatActivity() {
 
     @UiThread
     private fun onNewMessage(message: Message) {
-        val messageText = (message.parts[0].payload as Payload.Inline).content
-
-        // Some messages which we sent in the distant past might not have internal IDs.
-        val internalId = if (message.parts.size == 2) {
-            (message.parts[1].payload as Payload.Inline).content
-        } else {
-            UUID.randomUUID().toString()
-        }
-
-        // add the message to our adapter
-        messagesDataModel.addConfirmedMessage(
-            DataModel.Message (
-                senderId = message.sender.id,
-                senderName = message.sender.name,
-                senderAvatarUrl = message.sender.avatarURL,
-                text = messageText
-            ),
-            internalId
-        )
+        messagesDataModel.addMessageFromServer(message)
     }
 
     fun onClickSendButton(view: View) {
@@ -167,7 +151,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onClickMessage(position: Int) {
-        Log.d(logTag, "Pending message clicked")
+        // Get item and retry if it is failed
     }
 
     @UiThread
@@ -178,44 +162,28 @@ class MainActivity : AppCompatActivity() {
         }
 
         txtMessage.setText("")
-        sendMessage(text, null)
+        sendMessage(listOf(
+            NewPart.Inline(text, "text/plain"),
+            NewPart.Inline(UUID.randomUUID().toString(), ChatkitMessageUtil.MIME_TYPE_INTERNAL_ID)
+        ))
     }
 
     @UiThread
-    private fun sendMessage(text: String, previousInternalMessageId: String?) {
-        Log.d(logTag, "Message send requested" + when (previousInternalMessageId) {
-            null -> ", new message"
-            else -> ", retry of internal id $previousInternalMessageId"
-        })
-
-        val internalMessageId = messagesDataModel.addPendingMessage(
-            DataModel.Message(
-                senderId = currentUser.id,
-                senderName = currentUser.name,
-                senderAvatarUrl = currentUser.avatarURL,
-                text = text
-            ),
-            previousInternalMessageId
-        )
+    private fun sendMessage(message: List<NewPart>) {
+        messagesDataModel.addPendingMessage(message)
 
         currentUser.sendMultipartMessage(
             roomId = currentRoom.id,
-            parts = listOf(
-                NewPart.Inline(text, "text/plain"),
-                NewPart.Inline(internalMessageId, "x-pusher/internal-id")
-            ),
+            parts = message,
             callback = { result ->
                 runOnUiThread {
                     when (result) {
                         is Result.Success -> {
-                            Log.d(logTag, "Message send succeeded, internal id $internalMessageId, " +
-                                    "chatkit message id ${result.value}")
                             // update the pending message row
-                            messagesDataModel.pendingMessageConfirmed(internalMessageId)
+                            messagesDataModel.pendingMessageSent(message)
                         }
                         is Result.Failure -> {
-                            Log.d(logTag, "Message send failed, internal id $internalMessageId")
-                            messagesDataModel.pendingMessageFailed(internalMessageId)
+                            messagesDataModel.pendingMessageFailed(message)
                             Toast.makeText(this, "Message failed to send, tap it to retry", Toast.LENGTH_SHORT).show()
                         }
                     }
