@@ -1,74 +1,78 @@
 package com.pusher.chatkit.gettingstarted
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.annotation.UiThread
 import androidx.recyclerview.widget.RecyclerView
+import com.squareup.picasso.Picasso
 
 @UiThread
 internal class MessageAdapter(
-    private val currentUserId: String,
-    private val onClickPendingMessage: (MessageViewModel.Message, String) -> Unit,
-    private val onClickFailedMessage: (MessageViewModel.Message, String) -> Unit
-) : RecyclerView.Adapter<MessageViewHolder>(), MessageViewHolder.OnClickListener {
+    private val onClickListener: (position: Int) -> Unit
+) : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
 
-    private var items: List<MessageViewModel.MessageRow> = listOf()
+    private var items: List<MessagesViewModel.Message> = listOf()
 
-    fun setItems(items: List<MessageViewModel.MessageRow>) {
+    fun setItems(items: List<MessagesViewModel.Message>) {
         this.items = items
     }
 
     override fun getItemCount() = items.size
 
-    private enum class ViewType {
-        FROM_ME,
-        FROM_OTHER,
-        PENDING,
-        FAILED
-    }
-
     override fun getItemViewType(position: Int): Int {
-        val row = items[position]
-        return when (row.state) {
-            MessageViewModel.MessageState.Pending -> ViewType.PENDING.ordinal
-            MessageViewModel.MessageState.Failed -> ViewType.FAILED.ordinal
-            MessageViewModel.MessageState.Confirmed ->
-                if (row.message.senderId == currentUserId) {
-                    ViewType.FROM_ME.ordinal
-                } else {
-                    ViewType.FROM_OTHER.ordinal
-                }
-        }
+        return items[position].messageType.ordinal
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
         val layout =
             when (viewType) {
-                ViewType.PENDING.ordinal -> R.layout.layout_message_row_pending
-                ViewType.FAILED.ordinal -> R.layout.layout_message_row_failed
-                ViewType.FROM_ME.ordinal -> R.layout.layout_message_row_me
-                ViewType.FROM_OTHER.ordinal -> R.layout.layout_message_row
+                MessagesViewModel.MessageType.PENDING.ordinal -> R.layout.layout_message_row_pending
+                MessagesViewModel.MessageType.FAILED.ordinal -> R.layout.layout_message_row_failed
+                MessagesViewModel.MessageType.FROM_ME.ordinal -> R.layout.layout_message_row_me
+                MessagesViewModel.MessageType.FROM_OTHER.ordinal -> R.layout.layout_message_row
                 else -> throw Error("Unrecognised view type $viewType")
             }
 
         return MessageViewHolder(
-                LayoutInflater.from(parent.context).inflate(layout, parent, false), this
-            )
+            LayoutInflater.from(parent.context).inflate(layout, parent, false),
+            onClickListener
+        )
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(items[position].message)
+        holder.bind(items[position])
     }
 
-    override fun onClick(position: Int) {
-        val clickedRow = items[position]
-        when (clickedRow.state) {
-            MessageViewModel.MessageState.Failed ->
-                onClickFailedMessage(clickedRow.message, clickedRow.internalId)
-            MessageViewModel.MessageState.Pending ->
-                onClickPendingMessage(clickedRow.message, clickedRow.internalId)
-            MessageViewModel.MessageState.Confirmed -> { /* Ignore */ }
+    internal class MessageViewHolder(
+        itemView: View,
+        private val clickListener: (position: Int) -> Unit
+    ) : RecyclerView.ViewHolder(itemView), View.OnClickListener {
+
+        init {
+            itemView.setOnClickListener(this)
         }
 
+        fun bind(message: MessagesViewModel.Message) {
+            val lblSender = itemView.findViewById<TextView>(R.id.lblSender)
+            val lblMessage = itemView.findViewById<TextView>(R.id.lblMessage)
+            val imgAvatar = itemView.findViewById<ImageView>(R.id.imgAvatar)
+
+            lblSender.text = message.senderName
+            lblMessage.text = message.text
+
+            if (message.senderAvatarUrl != null) {
+                Picasso.get().load(message.senderAvatarUrl).into(imgAvatar)
+            } else {
+                imgAvatar.setImageDrawable(null)
+            }
+        }
+
+        override fun onClick(v: View?) {
+            clickListener(this.adapterPosition)
+        }
     }
+
 }

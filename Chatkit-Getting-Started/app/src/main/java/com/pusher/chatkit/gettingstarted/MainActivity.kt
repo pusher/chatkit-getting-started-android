@@ -35,7 +35,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currentRoom: Room
 
     private lateinit var adapter: MessageAdapter
-    private val messagesViewModel: MessageViewModel by viewModels()
+    private lateinit var messagesDataModel: DataModel
+    private val messagesViewModel: MessagesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,25 +44,8 @@ class MainActivity : AppCompatActivity() {
 
         // configure the recyclerview
         adapter = MessageAdapter(
-            currentUserId = userId,
-            onClickPendingMessage = this::onClickPendingMessage,
-            onClickFailedMessage = this::onClickFailedMessage
+            onClickListener = this::onClickMessage
         )
-
-        val messagesObserver = Observer<MessageViewModel.MessageModel> { newState ->
-            adapter.setItems(newState.rows)
-            when (newState.change) {
-                is MessageViewModel.ChangeType.ItemUpdated -> {
-                    adapter.notifyItemChanged(newState.change.index)
-                }
-                is MessageViewModel.ChangeType.ItemAdded -> {
-                    adapter.notifyItemInserted(newState.change.index)
-                    recyclerViewMessages.scrollToPosition(newState.change.index)
-                }
-            }
-        }
-
-        messagesViewModel.model.observe(this, messagesObserver)
 
         val layoutManager = LinearLayoutManager(this)
         layoutManager.stackFromEnd = true
@@ -85,7 +69,9 @@ class MainActivity : AppCompatActivity() {
         // attempt to connect
         chatManager.connect(
             listeners = ChatListeners(),
-            callback = this::onConnected
+            callback = {
+                runOnUiThread { onConnected(it) }
+            }
         )
 
         txtMessage.setOnEditorActionListener { _, actionId, event ->
@@ -107,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @UiThread
     private fun onConnected(result: Result<CurrentUser, Error>) {
         when (result) {
             is Result.Success -> {
@@ -114,13 +101,31 @@ class MainActivity : AppCompatActivity() {
                 currentUser = result.value
                 currentRoom = currentUser.rooms.first()
 
+                messagesDataModel = DataModel(currentUser.id)
+                messagesDataModel.model.observe(this, Observer<DataModel.MessageModel> { newDataModel ->
+                    messagesViewModel.update(newDataModel)
+                })
+
+                messagesViewModel.model.observe(this, Observer<MessagesViewModel.Model> { newViewModel ->
+                    adapter.setItems(newViewModel.items)
+                    when (newViewModel.change) {
+                        is ChangeType.ItemUpdated -> {
+                            adapter.notifyItemChanged(newViewModel.change.index)
+                        }
+                        is ChangeType.ItemAdded -> {
+                            adapter.notifyItemInserted(newViewModel.change.index)
+                            recyclerViewMessages.scrollToPosition(newViewModel.change.index)
+                        }
+                    }
+                })
+
                 // subscribe to room
                 currentUser.subscribeToRoomMultipart(
                     currentRoom.id,
                     consumer = { roomEvent ->
-                        when (roomEvent) {
-                            is RoomEvent.MultipartMessage -> runOnUiThread {
-                                this.onNewMessage(roomEvent.message)
+                        runOnUiThread {
+                            when (roomEvent) {
+                                is RoomEvent.MultipartMessage -> this.onNewMessage(roomEvent.message)
                             }
                         }
                     },
@@ -129,9 +134,7 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             is Result.Failure -> {
-                runOnUiThread {
-                    Toast.makeText(this, result.error.reason, Toast.LENGTH_SHORT).show()
-                }
+                Toast.makeText(this, result.error.reason, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -148,10 +151,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         // add the message to our adapter
-        messagesViewModel.addMessage(
-            MessageViewModel.Message (
+        messagesDataModel.addConfirmedMessage(
+            DataModel.Message (
                 senderId = message.sender.id,
-                senderName = message.sender.name!!,
+                senderName = message.sender.name,
                 senderAvatarUrl = message.sender.avatarURL,
                 text = messageText
             ),
@@ -163,13 +166,8 @@ class MainActivity : AppCompatActivity() {
         sendMessageFromTextEntry()
     }
 
-    private fun onClickPendingMessage(message: MessageViewModel.Message, internalId: String) {
+    private fun onClickMessage(position: Int) {
         Log.d(logTag, "Pending message clicked")
-    }
-
-    private fun onClickFailedMessage(message: MessageViewModel.Message, internalId: String) {
-        Log.d(logTag, "Failed message clicked")
-        sendMessage(message.text, internalId)
     }
 
     @UiThread
@@ -190,8 +188,8 @@ class MainActivity : AppCompatActivity() {
             else -> ", retry of internal id $previousInternalMessageId"
         })
 
-        val internalMessageId = messagesViewModel.addPendingMessage(
-            MessageViewModel.Message(
+        val internalMessageId = messagesDataModel.addPendingMessage(
+            DataModel.Message(
                 senderId = currentUser.id,
                 senderName = currentUser.name,
                 senderAvatarUrl = currentUser.avatarURL,
@@ -213,11 +211,11 @@ class MainActivity : AppCompatActivity() {
                             Log.d(logTag, "Message send succeeded, internal id $internalMessageId, " +
                                     "chatkit message id ${result.value}")
                             // update the pending message row
-                            messagesViewModel.pendingMessageConfirmed(internalMessageId)
+                            messagesDataModel.pendingMessageConfirmed(internalMessageId)
                         }
                         is Result.Failure -> {
                             Log.d(logTag, "Message send failed, internal id $internalMessageId")
-                            messagesViewModel.pendingMessageFailed(internalMessageId)
+                            messagesDataModel.pendingMessageFailed(internalMessageId)
                             Toast.makeText(this, "Message failed to send, tap it to retry", Toast.LENGTH_SHORT).show()
                         }
                     }
