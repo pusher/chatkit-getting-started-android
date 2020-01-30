@@ -18,7 +18,6 @@ import com.pusher.chatkit.rooms.RoomEvent
 import com.pusher.util.Result
 import elements.Error
 import kotlinx.android.synthetic.main.activity_main.*
-import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -27,7 +26,7 @@ class MainActivity : AppCompatActivity() {
     private val INSTANCE_LOCATOR = "v1:us1:a373ff46-ae0f-49fa-a88b-68d1e03c53a8"
     private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/a373ff46-ae0f-49fa-a88b-68d1e03c53a8/token"
 
-    private val userId = "pusher-quick-start-bob"
+    private val userId = "pusher-quick-start-alice"
 
     private lateinit var currentUser: CurrentUser
     private lateinit var currentRoom: Room
@@ -151,7 +150,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onClickMessage(position: Int) {
-        // Get item and retry if it is failed
+        val item = messagesDataModel.itemAt(position)
+
+        if (item !is DataModel.MessageItem.Local) {
+            return
+        }
+
+        if (item.state == DataModel.LocalMessageState.FAILED) {
+            sendMessage(item.message)
+        }
     }
 
     @UiThread
@@ -162,10 +169,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         txtMessage.setText("")
-        sendMessage(listOf(
-            NewPart.Inline(text, "text/plain"),
-            NewPart.Inline(UUID.randomUUID().toString(), ChatkitMessageUtil.MIME_TYPE_INTERNAL_ID)
-        ))
+        sendMessage(ChatkitMessageUtil.factoryMessage(text))
     }
 
     @UiThread
@@ -179,7 +183,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     when (result) {
                         is Result.Success -> {
-                            // update the pending message row
                             messagesDataModel.pendingMessageSent(message)
                         }
                         is Result.Failure -> {

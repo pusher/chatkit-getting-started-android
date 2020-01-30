@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import com.pusher.chatkit.messages.multipart.Message
 import com.pusher.chatkit.messages.multipart.NewPart
 import com.pusher.chatkit.messages.multipart.Payload
+import java.util.*
 
 sealed class ChangeType {
     data class ItemAdded(val index: Int) : ChangeType()
@@ -107,6 +108,17 @@ object ChatkitMessageUtil {
 
         return (part as? NewPart.Inline)?.content
     }
+
+    fun factoryMessage(text: String): List<NewPart> {
+        return listOf(
+            NewPart.Inline(text, "text/plain"),
+            NewPart.Inline(generateInternalId(), MIME_TYPE_INTERNAL_ID)
+        )
+    }
+
+    private fun generateInternalId(): String {
+        return UUID.randomUUID().toString()
+    }
 }
 
 class DataModel(
@@ -149,6 +161,8 @@ class DataModel(
     private val _model: MutableLiveData<MessageModel> = MutableLiveData()
 
     val model: LiveData<MessageModel> get() = _model
+
+    fun itemAt(position: Int): MessageItem? = items.getOrNull(position)
 
     fun addMessageFromServer(message: Message) {
         addOrUpdateItem(MessageItem.FromServer(message))
@@ -222,8 +236,8 @@ class DataModel(
     private fun findItemIndexByInternalId(internalId: String?): Int =
          items.indexOfLast { item ->
              when (item) {
-                 is MessageItem.FromServer -> item.internalId == internalId
-                 is MessageItem.Local -> item.internalId == internalId
+                 is MessageItem.FromServer -> item.internalId != null && item.internalId == internalId
+                 is MessageItem.Local -> item.internalId != null && item.internalId == internalId
              }
          }
 }
