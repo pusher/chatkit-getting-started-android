@@ -21,8 +21,6 @@ import kotlinx.android.synthetic.main.activity_main.*
 
 class MainActivity : AppCompatActivity() {
 
-    private val logTag = "MainActivity"
-
     private val INSTANCE_LOCATOR = "v1:us1:a373ff46-ae0f-49fa-a88b-68d1e03c53a8"
     private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/a373ff46-ae0f-49fa-a88b-68d1e03c53a8/token"
 
@@ -32,7 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currentRoom: Room
 
     private lateinit var adapter: MessageAdapter
-    private lateinit var messagesDataModel: DataModel
+    private lateinit var messagesDataModel: MessagesDataModel
     private val messagesViewModel: MessagesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,23 +96,19 @@ class MainActivity : AppCompatActivity() {
                 currentUser = result.value
                 currentRoom = currentUser.rooms.first()
 
-                messagesDataModel = DataModel(
+                messagesDataModel = MessagesDataModel(
                     currentUserId = currentUser.id,
                     currentUserName = currentUser.name,
                     currentUserAvatarUrl = currentUser.avatarURL
                 )
-                messagesDataModel.model.observe(this, Observer<DataModel.MessageModel> { newDataModel ->
+                messagesDataModel.model.observe(this, Observer<MessagesDataModel.MessagesModel> { newDataModel ->
                     messagesViewModel.update(newDataModel)
                 })
 
-                messagesViewModel.model.observe(this, Observer<MessagesViewModel.MessagesViewUpdate> { newViewModel ->
-                    adapter.setItems(newViewModel.items)
+                messagesViewModel.model.observe(this, Observer<MessagesViewModel.MessagesView> { newViewModel ->
+                    adapter.update(newViewModel)
                     when (newViewModel.change) {
-                        is ChangeType.ItemUpdated -> {
-                            adapter.notifyItemChanged(newViewModel.change.index)
-                        }
                         is ChangeType.ItemAdded -> {
-                            adapter.notifyItemInserted(newViewModel.change.index)
                             recyclerViewMessages.scrollToPosition(newViewModel.change.index)
                         }
                     }
@@ -150,13 +144,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onClickMessage(position: Int) {
-        val item = messagesDataModel.itemAt(position)
+        val item = messagesDataModel.model.value?.items?.get(position)
 
-        if (item !is DataModel.MessageItem.Local) {
+        if (item !is MessagesDataModel.MessageItem.Local) {
             return
         }
 
-        if (item.state == DataModel.LocalMessageState.FAILED) {
+        if (item.state == MessagesDataModel.LocalMessageState.FAILED) {
             sendMessage(item.message)
         }
     }
@@ -169,7 +163,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         txtMessage.setText("")
-        sendMessage(ChatkitMessageUtil.factoryMessage(text))
+        sendMessage(MessageMapper.textToNewMessage(text))
     }
 
     @UiThread

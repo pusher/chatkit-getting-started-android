@@ -14,25 +14,29 @@ internal class MessageAdapter(
     private val onClickListener: (position: Int) -> Unit
 ) : RecyclerView.Adapter<MessageAdapter.MessageViewHolder>() {
 
-    private var items: List<MessagesViewModel.Message> = listOf()
+    private var items: List<MessagesViewModel.MessageView> = listOf()
 
-    fun setItems(items: List<MessagesViewModel.Message>) {
-        this.items = items
+    fun update(messagesView: MessagesViewModel.MessagesView) {
+        this.items = messagesView.items
+        when (messagesView.change) {
+            is ChangeType.ItemAdded -> notifyItemInserted(messagesView.change.index)
+            is ChangeType.ItemUpdated -> notifyItemChanged(messagesView.change.index)
+        }
     }
 
     override fun getItemCount() = items.size
 
     override fun getItemViewType(position: Int): Int {
-        return items[position].messageType.ordinal
+        return items[position].viewType.ordinal
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
         val layout =
             when (viewType) {
-                MessagesViewModel.MessageType.PENDING.ordinal -> R.layout.layout_message_row_pending
-                MessagesViewModel.MessageType.FAILED.ordinal -> R.layout.layout_message_row_failed
-                MessagesViewModel.MessageType.FROM_ME.ordinal -> R.layout.layout_message_row_me
-                MessagesViewModel.MessageType.FROM_OTHER.ordinal -> R.layout.layout_message_row
+                MessagesViewModel.ViewType.PENDING.ordinal -> R.layout.layout_message_row_pending
+                MessagesViewModel.ViewType.FAILED.ordinal -> R.layout.layout_message_row_failed
+                MessagesViewModel.ViewType.FROM_ME.ordinal -> R.layout.layout_message_row_me
+                MessagesViewModel.ViewType.FROM_OTHER.ordinal -> R.layout.layout_message_row
                 else -> throw Error("Unrecognised view type $viewType")
             }
 
@@ -46,6 +50,7 @@ internal class MessageAdapter(
         holder.bind(items[position])
     }
 
+
     internal class MessageViewHolder(
         itemView: View,
         private val clickListener: (position: Int) -> Unit
@@ -55,16 +60,16 @@ internal class MessageAdapter(
             itemView.setOnClickListener(this)
         }
 
-        fun bind(message: MessagesViewModel.Message) {
+        fun bind(messageView: MessagesViewModel.MessageView) {
             val lblSender = itemView.findViewById<TextView>(R.id.lblSender)
             val lblMessage = itemView.findViewById<TextView>(R.id.lblMessage)
             val imgAvatar = itemView.findViewById<ImageView>(R.id.imgAvatar)
 
-            lblSender.text = message.senderName
-            lblMessage.text = message.text
+            lblSender.text = messageView.senderName
+            lblMessage.text = messageView.text
 
-            if (message.senderAvatarUrl != null) {
-                Picasso.get().load(message.senderAvatarUrl).into(imgAvatar)
+            if (messageView.senderAvatarUrl != null) {
+                Picasso.get().load(messageView.senderAvatarUrl).into(imgAvatar)
             } else {
                 imgAvatar.setImageDrawable(null)
             }
@@ -74,5 +79,4 @@ internal class MessageAdapter(
             clickListener(this.adapterPosition)
         }
     }
-
 }
