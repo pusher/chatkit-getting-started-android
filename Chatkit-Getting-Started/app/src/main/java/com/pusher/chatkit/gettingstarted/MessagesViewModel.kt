@@ -46,8 +46,7 @@ class MessagesViewModel : ViewModel() {
                     MessageView(
                         senderName = item.message.sender.name ?: "Anonymous User",
                         senderAvatarUrl = item.message.sender.avatarURL,
-                        text = MessageMapper.messageToText(item.message)
-                            ?: "",
+                        text = MessageMapper.messageToText(item.message) ?: "",
                         viewType = viewType
                     )
                 }
@@ -62,8 +61,7 @@ class MessagesViewModel : ViewModel() {
                     MessageView(
                         senderName = dataModel.currentUserName ?: "Anonymous User",
                         senderAvatarUrl = dataModel.currentUserAvatarUrl,
-                        text = MessageMapper.messageToText(item.message)
-                            ?: "",
+                        text = MessageMapper.messageToText(item.message) ?: "",
                         viewType = viewType
                     )
                 }

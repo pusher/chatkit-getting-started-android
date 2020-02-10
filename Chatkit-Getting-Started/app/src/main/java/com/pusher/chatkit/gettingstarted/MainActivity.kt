@@ -1,5 +1,6 @@
 package com.pusher.chatkit.gettingstarted
 
+import android.content.Intent
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -16,15 +17,9 @@ import com.pusher.chatkit.messages.multipart.NewPart
 import com.pusher.chatkit.rooms.Room
 import com.pusher.chatkit.rooms.RoomEvent
 import com.pusher.util.Result
-import elements.Error
 import kotlinx.android.synthetic.main.activity_main.*
 
 class MainActivity : AppCompatActivity() {
-
-    private val INSTANCE_LOCATOR = "v1:us1:a373ff46-ae0f-49fa-a88b-68d1e03c53a8"
-    private val TOKEN_PROVIDER_URL = "https://us1.pusherplatform.io/services/chatkit_token_provider/v1/a373ff46-ae0f-49fa-a88b-68d1e03c53a8/token"
-
-    private val userId = "pusher-quick-start-alice"
 
     private lateinit var currentUser: CurrentUser
     private lateinit var currentRoom: Room
@@ -37,6 +32,12 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Activity has been invoked without preceding login
+        if (Dependencies.currentUser == null) {
+            startActivity(Intent(applicationContext, GreeterActivity::class.java))
+            return
+        }
+
         // configure the recyclerview
         adapter = MessageAdapter(
             onClickListener = this::onClickMessage
@@ -48,25 +49,39 @@ class MainActivity : AppCompatActivity() {
         recyclerViewMessages.layoutManager = layoutManager
         recyclerViewMessages.adapter = adapter
 
-        // create the chat manager
-        val chatManager = ChatManager(
-            instanceLocator = INSTANCE_LOCATOR,
-            userId = userId,
-            dependencies = AndroidChatkitDependencies(
-                tokenProvider = ChatkitTokenProvider(
-                    endpoint = TOKEN_PROVIDER_URL,
-                    userId = userId
-                ),
-                context = this
-            )
-        )
+        currentUser = Dependencies.currentUser!!
+        currentRoom = currentUser.rooms.first()
 
-        // attempt to connect
-        chatManager.connect(
-            listeners = ChatListeners(),
-            callback = {
-                runOnUiThread { onConnected(it) }
+        messagesDataModel = MessagesDataModel(
+            currentUserId = currentUser.id,
+            currentUserName = currentUser.name,
+            currentUserAvatarUrl = currentUser.avatarURL
+        )
+        messagesDataModel.model.observe(this, Observer<MessagesDataModel.MessagesModel> { newDataModel ->
+            messagesViewModel.update(newDataModel)
+        })
+
+        messagesViewModel.model.observe(this, Observer<MessagesViewModel.MessagesView> { newViewModel ->
+            adapter.update(newViewModel)
+            when (newViewModel.change) {
+                is ChangeType.ItemAdded -> {
+                    recyclerViewMessages.scrollToPosition(newViewModel.change.index)
+                }
             }
+        })
+
+        // subscribe to room
+        currentUser.subscribeToRoomMultipart(
+            currentRoom.id,
+            consumer = { roomEvent ->
+                runOnUiThread {
+                    when (roomEvent) {
+                        is RoomEvent.MultipartMessage -> this.onNewMessage(roomEvent.message)
+                    }
+                }
+            },
+            messageLimit = 50,
+            callback = {}
         )
 
         txtMessage.setOnEditorActionListener { _, actionId, event ->
@@ -84,52 +99,6 @@ class MainActivity : AppCompatActivity() {
                 // We must declare we "handled" all events related to the enter key, otherwise
                 // further events (like key-up) will move the cursor focus elsewhere.
                 event?.keyCode == KeyEvent.KEYCODE_ENTER
-            }
-        }
-    }
-
-    @UiThread
-    private fun onConnected(result: Result<CurrentUser, Error>) {
-        when (result) {
-            is Result.Success -> {
-                // success! save the user and the room to be able to use later
-                currentUser = result.value
-                currentRoom = currentUser.rooms.first()
-
-                messagesDataModel = MessagesDataModel(
-                    currentUserId = currentUser.id,
-                    currentUserName = currentUser.name,
-                    currentUserAvatarUrl = currentUser.avatarURL
-                )
-                messagesDataModel.model.observe(this, Observer<MessagesDataModel.MessagesModel> { newDataModel ->
-                    messagesViewModel.update(newDataModel)
-                })
-
-                messagesViewModel.model.observe(this, Observer<MessagesViewModel.MessagesView> { newViewModel ->
-                    adapter.update(newViewModel)
-                    when (newViewModel.change) {
-                        is ChangeType.ItemAdded -> {
-                            recyclerViewMessages.scrollToPosition(newViewModel.change.index)
-                        }
-                    }
-                })
-
-                // subscribe to room
-                currentUser.subscribeToRoomMultipart(
-                    currentRoom.id,
-                    consumer = { roomEvent ->
-                        runOnUiThread {
-                            when (roomEvent) {
-                                is RoomEvent.MultipartMessage -> this.onNewMessage(roomEvent.message)
-                            }
-                        }
-                    },
-                    messageLimit = 50,
-                    callback = {}
-                )
-            }
-            is Result.Failure -> {
-                Toast.makeText(this, result.error.reason, Toast.LENGTH_SHORT).show()
             }
         }
     }
