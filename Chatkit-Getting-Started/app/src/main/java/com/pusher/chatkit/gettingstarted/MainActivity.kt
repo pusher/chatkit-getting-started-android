@@ -25,7 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var currentRoom: Room
 
     private lateinit var adapter: MessageAdapter
-    private lateinit var messagesDataModel: MessagesDataModel
+    private lateinit var messagesDataModel: MessagesStore
     private val messagesViewModel: MessagesViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,12 +52,12 @@ class MainActivity : AppCompatActivity() {
         currentUser = Dependencies.currentUser!!
         currentRoom = currentUser.rooms.first()
 
-        messagesDataModel = MessagesDataModel(
+        messagesDataModel = MessagesStore(
             currentUserId = currentUser.id,
             currentUserName = currentUser.name,
             currentUserAvatarUrl = currentUser.avatarURL
         )
-        messagesDataModel.model.observe(this, Observer<MessagesDataModel.MessagesModel> { newDataModel ->
+        messagesDataModel.model.observe(this, Observer<MessagesStore.MessagesModel> { newDataModel ->
             messagesViewModel.update(newDataModel)
         })
 
@@ -115,11 +115,11 @@ class MainActivity : AppCompatActivity() {
     private fun onClickMessage(position: Int) {
         val item = messagesDataModel.model.value?.items?.get(position)
 
-        if (item !is MessagesDataModel.MessageItem.Local) {
+        if (item !is MessagesStore.MessageItem.Local) {
             return
         }
 
-        if (item.state == MessagesDataModel.LocalMessageState.FAILED) {
+        if (item.state == MessagesStore.LocalMessageState.FAILED) {
             sendMessage(item.message)
         }
     }

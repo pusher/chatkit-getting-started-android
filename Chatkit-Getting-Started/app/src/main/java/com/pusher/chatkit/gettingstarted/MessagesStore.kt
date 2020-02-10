@@ -6,7 +6,7 @@ import com.pusher.chatkit.messages.multipart.Message
 import com.pusher.chatkit.messages.multipart.NewPart
 
 
-class MessagesDataModel(
+class MessagesStore(
     private val currentUserId: String,
     private val currentUserName: String?,
     private val currentUserAvatarUrl: String?

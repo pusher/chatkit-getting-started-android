@@ -4,11 +4,6 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 
-sealed class ChangeType {
-    data class ItemAdded(val index: Int) : ChangeType()
-    data class ItemUpdated(val index: Int) : ChangeType()
-}
-
 class MessagesViewModel : ViewModel() {
     enum class ViewType {
         PENDING,
@@ -32,10 +27,10 @@ class MessagesViewModel : ViewModel() {
     private val _model: MutableLiveData<MessagesView> = MutableLiveData()
     val model: LiveData<MessagesView> get() = _model
 
-    fun update(dataModel: MessagesDataModel.MessagesModel) {
+    fun update(dataModel: MessagesStore.MessagesModel) {
         val newItems = dataModel.items.map { item ->
             when (item) {
-                is MessagesDataModel.MessageItem.FromServer -> {
+                is MessagesStore.MessageItem.FromServer -> {
                     val viewType =
                         if (item.message.sender.id == dataModel.currentUserId) {
                             ViewType.FROM_ME
@@ -50,12 +45,12 @@ class MessagesViewModel : ViewModel() {
                         viewType = viewType
                     )
                 }
-                is MessagesDataModel.MessageItem.Local -> {
+                is MessagesStore.MessageItem.Local -> {
                     val viewType =
                         when (item.state) {
-                            MessagesDataModel.LocalMessageState.PENDING -> ViewType.PENDING
-                            MessagesDataModel.LocalMessageState.FAILED -> ViewType.FAILED
-                            MessagesDataModel.LocalMessageState.SENT -> ViewType.FROM_ME
+                            MessagesStore.LocalMessageState.PENDING -> ViewType.PENDING
+                            MessagesStore.LocalMessageState.FAILED -> ViewType.FAILED
+                            MessagesStore.LocalMessageState.SENT -> ViewType.FROM_ME
                         }
 
                     MessageView(
